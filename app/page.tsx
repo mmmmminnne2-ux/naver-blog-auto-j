@@ -2,7 +2,6 @@
 
 import { FormEvent, useMemo, useState } from 'react';
 import { formatPostContent } from '@/lib/format-post';
-import { resolveSafePlaceLink } from '@/lib/naver-place-detail';
 import type { PlaceProfile } from '@/types/post';
 
 type PostType = 'place' | 'store' | 'general';
@@ -59,6 +58,7 @@ export default function HomePage() {
       const telephone = item.telephone || '연락처 정보 없음';
       const address = item.roadAddress || item.address || '';
       const categoryText = item.category || '';
+      const safePlaceLink = `https://map.naver.com/p/search/${encodeURIComponent(cleanTitle)}`;
 
       console.log('NAVER PLACE RESULT', {
         title: cleanTitle,
@@ -68,38 +68,25 @@ export default function HomePage() {
         link: item.link || '',
         category: categoryText
       });
-
-      const detailRes = await fetch(`/api/naver-place-detail?title=${encodeURIComponent(cleanTitle)}&address=${encodeURIComponent(address)}&link=${encodeURIComponent(item.link || '')}`);
-      const detail = await detailRes.json();
-      const placeLink = detail.placeLink || '';
-      const introText = detail.intro || '플레이스 소개 정보 없음';
-      const safePlaceLink = resolveSafePlaceLink(placeLink, cleanTitle);
+      console.log('SAFE PLACE LINK SET:', safePlaceLink);
 
       setProfile({
         businessName: cleanTitle,
         contact: telephone,
         address,
         placeLink: safePlaceLink,
-        intro: introText,
+        intro: `${cleanTitle} 업체 정보입니다. 카테고리: ${categoryText}. 위치: ${address}. 연락수단: ${telephone}.`,
         category: categoryText
       });
+      // TODO: 추후 네이버 플레이스 상세 소개 파서 연결 예정
 
       setReferenceUrl(safePlaceLink);
       setLink(safePlaceLink);
 
-      console.log('FINAL PLACE LINK', safePlaceLink);
-
-      if (!placeLink) {
-        setToast('네이버 플레이스 링크를 찾지 못했습니다. 직접 입력해주세요.');
-      }
-
-      setGuideline(`업체명: ${cleanTitle}
-카테고리: ${categoryText}
+      setGuideline(`카테고리: ${categoryText}
 주소: ${address}
-연락수단: ${telephone}
-플레이스 링크: ${safePlaceLink || '-'}`);
-
-      if (placeLink) setToast('업체 정보를 자동 입력했습니다.');
+연락수단: ${telephone}`);
+      setToast('업체 정보를 자동 입력했습니다.');
     } catch (e) {
       setToast(e instanceof Error ? e.message : '업체 정보를 불러오지 못했습니다.');
     } finally {
