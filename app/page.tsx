@@ -1,108 +1,112 @@
 'use client';
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { createPost, fetchPosts, publishPost, uploadImage } from '@/lib/post-service';
-import type { BlogPost } from '@/types/post';
+import { formatPostContent } from '@/lib/format-post';
+import { createPost, fetchPosts } from '@/lib/post-service';
+import { publishToNaver } from '@/lib/naver-publisher';
+import type { DraftContent, FormatOptions, PublishStatus, SavedPost } from '@/types/post';
+
+const initialDraft: DraftContent = { title: '', body: '', mapLink: '', hashtags: '' };
+const initialFormatOptions: FormatOptions = { enableSubtitles: true, enableBold: true, enableHighlight: true, enableKeywordColor: true };
+
+function parseGenerated(raw: string): DraftContent {
+  const title = raw.match(/제목\s*:\s*([\s\S]*?)\n본문\s*:/)?.[1]?.trim() ?? '';
+  const body = raw.match(/본문\s*:\s*([\s\S]*?)\n링크\(지도첨부\)\s*:/)?.[1]?.trim() ?? '';
+  const mapLink = raw.match(/링크\(지도첨부\)\s*:\s*([\s\S]*?)\n해시태그\s*:/)?.[1]?.trim() ?? '';
+  const hashtags = raw.match(/해시태그\s*:\s*([\s\S]*)$/)?.[1]?.trim() ?? '';
+  return { title, body, mapLink, hashtags };
+}
 
 export default function HomePage() {
-  const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
-  const [tags, setTags] = useState('');
-  const [image, setImage] = useState<File | null>(null);
-  const [posts, setPosts] = useState<BlogPost[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<string>('');
+  const [keyword, setKeyword] = useState('');
+  const [photoCount, setPhotoCount] = useState(1);
+  const [guideline, setGuideline] = useState('');
+  const [mapLinkInput, setMapLinkInput] = useState('');
+  const [hashtagsInput, setHashtagsInput] = useState('');
+  const [tone, setTone] = useState('친근하고 신뢰감 있는 후기 톤');
+  const [photos, setPhotos] = useState<File[]>([]);
+  const [draft, setDraft] = useState<DraftContent>(initialDraft);
+  const [formattedBody, setFormattedBody] = useState('');
+  const [formatOptions, setFormatOptions] = useState<FormatOptions>(initialFormatOptions);
+  const [savedPosts, setSavedPosts] = useState<SavedPost[]>([]);
+  const [status, setStatus] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [publishStatus, setPublishStatus] = useState<PublishStatus>('idle');
 
-  useEffect(() => {
-    loadPosts();
-  }, []);
+  useEffect(() => { void loadPosts(); }, []);
+  useEffect(() => setFormattedBody(formatPostContent(draft.body, formatOptions)), [draft.body, formatOptions]);
 
-  const parsedTags = useMemo(
-    () => tags.split(',').map((tag) => tag.trim()).filter(Boolean),
-    [tags]
-  );
+  const mismatch = useMemo(() => photos.length !== photoCount, [photos.length, photoCount]);
 
-  async function loadPosts() {
-    try {
-      const data = await fetchPosts();
-      setPosts(data);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '목록을 불러오지 못했습니다.');
-    }
-  }
+  async function loadPosts() { try { setSavedPosts(await fetchPosts()); } catch (e) { setStatus(e instanceof Error ? e.message : '저장 목록 조회 실패'); } }
 
-  async function handleSubmit(event: FormEvent) {
+  async function handleGenerate(event: FormEvent) {
     event.preventDefault();
-    setLoading(true);
-    setMessage('');
-
+    setIsGenerating(true);
+    setStatus('AI 원고 생성 중...');
     try {
-      let imageUrl: string | null = null;
-      if (image) {
-        imageUrl = await uploadImage(image);
-      }
-
-      await createPost({ title, body, tags: parsedTags, image_url: imageUrl });
-      setTitle('');
-      setBody('');
-      setTags('');
-      setImage(null);
-      setMessage('글이 저장되었습니다.');
-      await loadPosts();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '저장 중 오류가 발생했습니다.');
-    } finally {
-      setLoading(false);
-    }
+      const response = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keyword, photoCount, guideline, mapLink: mapLinkInput, hashtags: hashtagsInput, tone }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message ?? 'AI 원고 생성 실패');
+      setDraft(parseGenerated(data.result));
+      setStatus('AI 원고 생성 완료 + 자동 서식 적용');
+    } catch (e) { setStatus(e instanceof Error ? e.message : 'AI 원고 생성 실패'); } finally { setIsGenerating(false); }
   }
 
-  async function handlePublish(id: string) {
+  async function handleSave() {
     try {
-      await publishPost(id);
-      setMessage('발행 상태로 변경되었습니다.');
+      await createPost({ keyword, photoCount, guideline, mapLink: draft.mapLink || mapLinkInput, hashtags: draft.hashtags || hashtagsInput, tone, title: draft.title, body: draft.body, rawContent: draft.body, formattedContent: formattedBody, photoUrls: photos.map((f) => f.name) });
+      setStatus('원고 저장 완료');
       await loadPosts();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '발행 실패');
-    }
+    } catch (e) { setStatus(e instanceof Error ? e.message : '원고 저장 실패'); }
+  }
+
+  async function handlePublish() {
+    setPublishStatus('publishing');
+    const result = await publishToNaver({ keyword, photoCount, guideline, mapLink: draft.mapLink || mapLinkInput, hashtags: draft.hashtags || hashtagsInput, tone, title: draft.title, body: formattedBody, photoUrls: photos.map((f) => f.name) });
+    setPublishStatus(result.ok ? 'success' : 'failed');
+    setStatus(result.message);
+  }
+
+  async function handleCopyAll() {
+    const text = `제목 : ${draft.title}\n\n본문 :\n${draft.body}\n\n링크(지도첨부) : ${draft.mapLink}\n\n해시태그 : ${draft.hashtags}`;
+    await navigator.clipboard.writeText(text);
+    setStatus('복사 완료');
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 p-4 md:p-8">
-      <header className="rounded-2xl bg-white p-5 shadow-sm">
-        <h1 className="text-xl font-semibold md:text-2xl">네이버 블로그 자동 발행 관리자</h1>
-        <p className="mt-1 text-sm text-slate-500">초안 저장부터 발행 상태 관리까지 한 번에 처리합니다.</p>
-      </header>
-
-      <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-        <form onSubmit={handleSubmit} className="space-y-4 rounded-2xl bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-semibold">글 작성</h2>
-          <input className="w-full rounded-xl border border-slate-200 p-3" placeholder="제목" value={title} onChange={(e) => setTitle(e.target.value)} required />
-          <textarea className="min-h-44 w-full rounded-xl border border-slate-200 p-3" placeholder="본문" value={body} onChange={(e) => setBody(e.target.value)} required />
-          <input className="w-full rounded-xl border border-slate-200 p-3" placeholder="태그 (쉼표 구분)" value={tags} onChange={(e) => setTags(e.target.value)} />
-          <input className="w-full rounded-xl border border-slate-200 p-3 file:mr-4 file:rounded-lg file:border-0 file:bg-brand-50 file:px-3 file:py-2 file:text-brand-600" type="file" accept="image/*" onChange={(e) => setImage(e.target.files?.[0] ?? null)} />
-          <button disabled={loading} className="w-full rounded-xl bg-brand-500 px-4 py-3 font-medium text-white hover:bg-brand-600 disabled:opacity-50">{loading ? '저장 중...' : '작성한 글 저장'}</button>
-          {message && <p className="text-sm text-slate-600">{message}</p>}
+    <main className="mx-auto min-h-screen w-full max-w-6xl space-y-4 p-4 md:p-8">
+      <h1 className="rounded-2xl bg-white p-5 text-xl font-semibold shadow-sm">네이버 블로그 자동발행 관리자</h1>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <form onSubmit={handleGenerate} className="space-y-3 rounded-2xl bg-white p-4 shadow-sm">
+          <input className="w-full rounded-lg border p-3" placeholder="1. 키워드" value={keyword} onChange={(e)=>setKeyword(e.target.value)} required />
+          <input className="w-full rounded-lg border p-3" type="number" min={1} value={photoCount} onChange={(e)=>setPhotoCount(Number(e.target.value))} required />
+          <textarea className="min-h-28 w-full rounded-lg border p-3" placeholder="3. 가이드라인" value={guideline} onChange={(e)=>setGuideline(e.target.value)} required />
+          <input className="w-full rounded-lg border p-3" placeholder="4. 링크(지도첨부)" value={mapLinkInput} onChange={(e)=>setMapLinkInput(e.target.value)} />
+          <input className="w-full rounded-lg border p-3" placeholder="5. 해시태그" value={hashtagsInput} onChange={(e)=>setHashtagsInput(e.target.value)} />
+          <input multiple accept="image/*" type="file" className="w-full rounded-lg border p-3" onChange={(e)=>setPhotos(Array.from(e.target.files ?? []))} />
+          <input className="w-full rounded-lg border p-3" placeholder="7. 말투(컨셉)" value={tone} onChange={(e)=>setTone(e.target.value)} />
+          {mismatch && <p className="text-sm text-amber-600">사진 장수 입력값({photoCount})과 실제 업로드({photos.length})가 다릅니다.</p>}
+          <div className="grid gap-2 text-sm md:grid-cols-2">
+            <label><input type="checkbox" checked={formatOptions.enableSubtitles} onChange={(e)=>setFormatOptions((p)=>({...p, enableSubtitles: e.target.checked}))} /> 소제목 자동 생성</label>
+            <label><input type="checkbox" checked={formatOptions.enableBold} onChange={(e)=>setFormatOptions((p)=>({...p, enableBold: e.target.checked}))} /> 핵심 문장 굵게 표시</label>
+            <label><input type="checkbox" checked={formatOptions.enableHighlight} onChange={(e)=>setFormatOptions((p)=>({...p, enableHighlight: e.target.checked}))} /> 형광펜 강조 적용</label>
+            <label><input type="checkbox" checked={formatOptions.enableKeywordColor} onChange={(e)=>setFormatOptions((p)=>({...p, enableKeywordColor: e.target.checked}))} /> 컬러 키워드 강조 적용</label>
+          </div>
+          <div className="grid grid-cols-2 gap-2"><button className="rounded-lg bg-blue-600 p-3 text-white" disabled={isGenerating}>{isGenerating ? '생성 중...' : 'AI 원고 생성'}</button><button type="button" onClick={handleSave} className="rounded-lg bg-slate-900 p-3 text-white">저장</button></div>
         </form>
 
-        <div className="rounded-2xl bg-white p-5 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold">저장된 글 리스트</h2>
-          <ul className="space-y-3">
-            {posts.map((post) => (
-              <li key={post.id} className="rounded-xl border border-slate-200 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-medium">{post.title}</p>
-                    <p className="mt-1 text-xs text-slate-500">{post.tags.join(', ') || '태그 없음'}</p>
-                    <p className="mt-2 text-xs text-slate-400">상태: {post.status === 'published' ? '발행 완료' : '초안'}</p>
-                  </div>
-                  <button onClick={() => handlePublish(post.id)} disabled={post.status === 'published'} className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-medium text-white disabled:bg-slate-300">발행</button>
-                </div>
-              </li>
-            ))}
-            {posts.length === 0 && <li className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-500">저장된 글이 없습니다.</li>}
-          </ul>
-        </div>
-      </section>
+        <section className="space-y-3 rounded-2xl bg-white p-4 shadow-sm">
+          <input className="w-full rounded-lg border p-3" value={draft.title} onChange={(e)=>setDraft((p)=>({...p, title: e.target.value}))} placeholder="제목 :" />
+          <textarea className="min-h-40 w-full rounded-lg border p-3" value={draft.body} onChange={(e)=>setDraft((p)=>({...p, body: e.target.value}))} placeholder="원본 텍스트 편집" />
+          <div className="rounded-xl border p-4"><style jsx>{`mark{background:#fff3a3;padding:0 2px}.keyword-highlight{color:#2563eb;font-weight:600}h2{font-weight:700;margin:16px 0 8px}p{margin:0 0 10px;line-height:1.7}`}</style><div dangerouslySetInnerHTML={{ __html: formattedBody }} /></div>
+          <div className="grid grid-cols-2 gap-2"><button type="button" onClick={handleCopyAll} className="rounded-lg bg-slate-200 p-3">복사하기</button><button type="button" onClick={handlePublish} className="rounded-lg bg-emerald-600 p-3 text-white">네이버 자동발행</button></div>
+          {publishStatus === 'publishing' && <p className="text-sm text-slate-500">자동발행 진행 중...</p>}
+          {status && <p className="text-sm text-slate-600">{status}</p>}
+        </section>
+      </div>
+
+      <section className="rounded-2xl bg-white p-4 shadow-sm"><h2 className="mb-3 font-semibold">저장된 원고 리스트</h2><div className="grid gap-3 md:grid-cols-2">{savedPosts.map((post) => <article key={post.id} className="rounded-xl border p-3"><p className="font-medium">{post.title}</p><p className="text-sm text-slate-500">키워드: {post.keyword}</p></article>)}{savedPosts.length===0 && <p className="text-sm text-slate-500">저장된 원고가 없습니다.</p>}</div></section>
     </main>
   );
 }
