@@ -2,6 +2,7 @@
 
 import { FormEvent, useMemo, useState } from 'react';
 import { formatPostContent } from '@/lib/format-post';
+import { resolveSafePlaceLink } from '@/lib/naver-place-detail';
 import type { PlaceProfile } from '@/types/post';
 
 type PostType = 'place' | 'store' | 'general';
@@ -72,22 +73,23 @@ export default function HomePage() {
       const detail = await detailRes.json();
       const placeLink = detail.placeLink || '';
       const introText = detail.intro || '플레이스 소개 정보 없음';
+      const safePlaceLink = resolveSafePlaceLink(placeLink, cleanTitle);
 
       setProfile({
         businessName: cleanTitle,
         contact: telephone,
         address,
-        placeLink,
+        placeLink: safePlaceLink,
         intro: introText,
         category: categoryText
       });
 
-      setReferenceUrl('');
-      setLink('');
-      if (placeLink) {
-        setReferenceUrl(placeLink);
-        setLink(placeLink);
-      } else {
+      setReferenceUrl(safePlaceLink);
+      setLink(safePlaceLink);
+
+      console.log('FINAL PLACE LINK', safePlaceLink);
+
+      if (!placeLink) {
         setToast('네이버 플레이스 링크를 찾지 못했습니다. 직접 입력해주세요.');
       }
 
@@ -95,7 +97,7 @@ export default function HomePage() {
 카테고리: ${categoryText}
 주소: ${address}
 연락수단: ${telephone}
-플레이스 링크: ${placeLink || '-'}`);
+플레이스 링크: ${safePlaceLink || '-'}`);
 
       if (placeLink) setToast('업체 정보를 자동 입력했습니다.');
     } catch (e) {

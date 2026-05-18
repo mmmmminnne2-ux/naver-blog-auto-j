@@ -39,3 +39,23 @@ export async function fetchNaverPlaceDetail(params: { title: string; address: st
 }
 
 export { isPlaceLink };
+
+
+function buildNaverMapSearchUrl(title: string) {
+  return `https://map.naver.com/p/search/${encodeURIComponent(title)}`;
+}
+
+function isBlockedExternalLink(url: string) {
+  return ['instagram.com', 'blog.naver.com', 'smartstore.naver.com'].some((d) => url.includes(d));
+}
+
+export function resolveSafePlaceLink(foundPlaceLink: string, cleanTitle: string) {
+  const trimmed = (foundPlaceLink || '').trim();
+  if (trimmed && isPlaceLink(trimmed) && !isBlockedExternalLink(trimmed)) {
+    return trimmed;
+  }
+  if (cleanTitle.trim()) {
+    return buildNaverMapSearchUrl(cleanTitle.trim());
+  }
+  return '플레이스 링크 확인 필요';
+}
