@@ -70,15 +70,18 @@ export default function HomePage() {
       });
       console.log('SAFE PLACE LINK SET:', safePlaceLink);
 
+      const detailRes = await fetch(`/api/naver-place-detail?title=${encodeURIComponent(cleanTitle)}&address=${encodeURIComponent(address)}&placeLink=${encodeURIComponent(safePlaceLink)}`);
+      const detail = await detailRes.json();
+      console.log('PLACE DETAIL INTRO', detail.intro);
+
       setProfile({
         businessName: cleanTitle,
         contact: telephone,
         address,
         placeLink: safePlaceLink,
-        intro: `${cleanTitle} 업체 정보입니다. 카테고리: ${categoryText}. 위치: ${address}. 연락수단: ${telephone}.`,
+        intro: detail.intro || '플레이스 소개 정보 없음',
         category: categoryText
       });
-      // TODO: 추후 네이버 플레이스 상세 소개 파서 연결 예정
 
       setReferenceUrl(safePlaceLink);
       setLink(safePlaceLink);
