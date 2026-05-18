@@ -7,6 +7,15 @@ export interface GuidelineInput {
   tone: string;
 }
 
+export interface PlaceProfile {
+  businessName: string;
+  contact: string;
+  address: string;
+  placeLink: string;
+  intro: string;
+  category: string;
+}
+
 export interface DraftContent {
   title: string;
   body: string;

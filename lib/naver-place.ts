@@ -5,10 +5,20 @@ export interface NaverPlaceResult {
   roadAddress: string;
   link: string;
   category: string;
+  description: string;
 }
 
 function stripHtml(input: string) {
   return input.replace(/<[^>]*>/g, '').trim();
+}
+
+function toMobilePlaceUrl(rawLink: string) {
+  if (!rawLink) return '';
+  const placeIdMatch = rawLink.match(/\/place\/(\d+)/) ?? rawLink.match(/[?&]id=(\d+)/);
+  if (placeIdMatch?.[1]) {
+    return `https://m.place.naver.com/place/${placeIdMatch[1]}`;
+  }
+  return rawLink;
 }
 
 export async function searchNaverLocal(query: string) {
@@ -35,11 +45,16 @@ export async function searchNaverLocal(query: string) {
   const data = await response.json();
   const items = (data.items ?? []) as NaverPlaceResult[];
 
-  return items.map((item) => ({
-    title: stripHtml(item.title || ''),
-    telephone: item.telephone || '',
-    address: item.roadAddress || item.address || '',
-    link: item.link || '',
-    category: item.category || ''
-  }));
+  return items.map((item) => {
+    const cleanTitle = stripHtml(item.title || '');
+    const category = stripHtml(item.category || '');
+    return {
+      title: cleanTitle,
+      telephone: item.telephone?.trim() || '연락처 정보 없음',
+      address: (item.roadAddress || item.address || '').trim(),
+      link: toMobilePlaceUrl(item.link || ''),
+      category,
+      description: `${cleanTitle}은(는) ${category || '지역 기반 서비스'} 중심의 업체로 보이며, 방문 전 운영 정보와 주요 특징을 확인해보는 것이 좋습니다.`
+    };
+  });
 }

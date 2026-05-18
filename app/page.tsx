@@ -2,23 +2,22 @@
 
 import { FormEvent, useMemo, useState } from 'react';
 import { formatPostContent } from '@/lib/format-post';
+import type { PlaceProfile } from '@/types/post';
 
 type PostType = 'place' | 'store' | 'general';
 
+const emptyProfile: PlaceProfile = { businessName: '', contact: '', address: '', placeLink: '', intro: '', category: '' };
+
 export default function HomePage() {
   const [postType, setPostType] = useState<PostType>('place');
-  const [businessName, setBusinessName] = useState('');
-  const [address, setAddress] = useState('');
-  const [contact, setContact] = useState('');
-  const [intro, setIntro] = useState('');
-  const [category, setCategory] = useState('');
+  const [profile, setProfile] = useState<PlaceProfile>(emptyProfile);
   const [keyword, setKeyword] = useState('');
   const [guideline, setGuideline] = useState('');
   const [extraGuide, setExtraGuide] = useState('');
   const [tone, setTone] = useState('20대 여성 발랄한 후기 말투');
   const [referenceUrl, setReferenceUrl] = useState('');
   const [referenceExtracted, setReferenceExtracted] = useState<Record<string, unknown> | null>(null);
-    const [photos, setPhotos] = useState<File[]>([]);
+  const [photos, setPhotos] = useState<File[]>([]);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [link, setLink] = useState('');
@@ -26,49 +25,41 @@ export default function HomePage() {
   const [loading, setLoading] = useState(false);
   const [autoFilling, setAutoFilling] = useState(false);
   const [toast, setToast] = useState('');
-  const [naverId, setNaverId] = useState('');
-  const [naverPassword, setNaverPassword] = useState('');
 
   const photoCount = photos.length;
   const formatted = useMemo(() => formatPostContent(body, { enableSubtitles: true, enableBold: true, enableHighlight: true, enableKeywordColor: true }), [body]);
 
+  function resetProfile() {
+    setProfile(emptyProfile);
+    setReferenceUrl('');
+    setLink('');
+    setReferenceExtracted(null);
+  }
+
   async function handleAutoFill() {
-    if (!businessName.trim()) return setToast('업체명을 입력해 주세요.');
+    const query = profile.businessName.trim();
+    if (!query) return setToast('업체명을 입력해 주세요.');
+    resetProfile();
+    setProfile((prev) => ({ ...prev, businessName: query }));
     setAutoFilling(true);
     try {
-      const res = await fetch(`/api/naver-place?query=${encodeURIComponent(businessName)}`);
+      const res = await fetch(`/api/naver-place?query=${encodeURIComponent(query)}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || '업체 정보를 불러오지 못했습니다.');
       const item = data.item;
-      setBusinessName(item.title || businessName);
-      setContact(item.telephone || '');
-      setAddress(item.address || '');
+      setProfile({ businessName: item.title || query, contact: item.telephone || '연락처 정보 없음', address: item.address || '', placeLink: item.link || '', intro: item.description || '업체 소개 정보 없음', category: item.category || '' });
       if (postType === 'place') { setReferenceUrl(item.link || ''); setLink(item.link || ''); }
-      setCategory(item.category || '');
-      setGuideline((prev) => {
-        const cat = item.category ? `카테고리 참고: ${item.category}` : '';
-        if (!cat) return prev;
-        return prev.includes(cat) ? prev : (prev ? `${prev}\n${cat}` : cat);
-      });
+      setGuideline(item.category ? `카테고리 참고: ${item.category}` : '');
       setToast('업체 정보를 자동 입력했습니다.');
     } catch (e) {
       setToast(e instanceof Error ? e.message : '업체 정보를 불러오지 못했습니다.');
-    } finally {
-      setAutoFilling(false);
-    }
-  }
-
-  async function scanReference() {
-    const res = await fetch('/api/reference-scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: referenceUrl }) });
-    const data = await res.json();
-    setReferenceExtracted(data.extracted);
-    setToast('참고자료 분석 완료');
+    } finally { setAutoFilling(false); }
   }
 
   async function onGenerate(e: FormEvent) {
     e.preventDefault();
     setLoading(true);
-    const res = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ postType, businessName, address, contact, intro, category, keyword, guideline, extraGuide, tone, referenceUrl, referenceExtracted, photoCount }) });
+    const res = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ postType, businessName: profile.businessName, address: profile.address, contact: profile.contact, intro: profile.intro, category: profile.category, keyword, guideline, extraGuide, tone, referenceUrl, referenceExtracted, photoCount }) });
     const data = await res.json();
     const raw = data.result ?? '';
     setTitle(raw.match(/제목\s*:\s*([\s\S]*?)\n본문\s*:/)?.[1]?.trim() ?? '');
@@ -76,36 +67,22 @@ export default function HomePage() {
     setLink(raw.match(/링크\(지도첨부\)\s*:\s*([\s\S]*?)\n해시태그\s*:/)?.[1]?.trim() ?? '');
     setHashtags(raw.match(/해시태그\s*:\s*([\s\S]*)$/)?.[1]?.trim() ?? '');
     setLoading(false);
-    setToast('AI 원고 생성 완료');
-  }
-
-  async function onPublish() {
-    const res = await fetch('/api/naver-publish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ naverId, naverPassword, post: { title, body: formatted, link, hashtags, photoNames: photos.map((p) => p.name) } }) });
-    const data = await res.json();
-    setToast(data.message || '완료');
   }
 
   return <main className="mx-auto min-h-screen max-w-7xl p-4 md:p-8">
     <div className="mb-4 card p-4 text-center text-lg font-semibold">AD:ME 블로그 자동프로그램 베타</div>
     <div className="grid gap-4 xl:grid-cols-2">
       <form onSubmit={onGenerate} className="card space-y-3 p-4">
-        <div className="grid grid-cols-3 gap-2">
-          {(['place', 'store', 'general'] as PostType[]).map((t) => <button key={t} type="button" onClick={() => setPostType(t)} className={`btn ${postType===t?'bg-indigo-500 text-white':'bg-slate-800 text-slate-200 hover:bg-slate-700'}`}>{t==='place'?'플레이스 배포':t==='store'?'스토어 배포':'일반 배포'}</button>)}
-        </div>
-        <div className="flex gap-2"><input className="input" placeholder="업체이름" value={businessName} onChange={(e)=>setBusinessName(e.target.value)} /><button type="button" className="btn bg-slate-800 hover:bg-slate-700" onClick={handleAutoFill}>{autoFilling ? '불러오는 중...' : '자동 입력'}</button></div>
-        <div className="grid gap-2 md:grid-cols-2"><input className="input" placeholder="연락수단" value={contact} onChange={(e)=>setContact(e.target.value)} /><input className="input" placeholder="위치" value={address} onChange={(e)=>setAddress(e.target.value)} /></div>
+        <div className="grid grid-cols-3 gap-2">{(['place','store','general'] as PostType[]).map((t)=><button key={t} type="button" onClick={()=>setPostType(t)} className={`btn ${postType===t?'bg-indigo-500 text-white':'bg-slate-800 text-slate-200'}`}>{t==='place'?'플레이스 배포':t==='store'?'스토어 배포':'일반 배포'}</button>)}</div>
+        <div className="flex gap-2"><input className="input" placeholder="업체이름" value={profile.businessName} onChange={(e)=>setProfile((p)=>({...p,businessName:e.target.value}))} /><button type="button" className="btn bg-slate-800" onClick={handleAutoFill}>{autoFilling?'불러오는 중...':'자동 입력'}</button></div>
+        <div className="grid gap-2 md:grid-cols-2"><input className="input" placeholder="연락수단" value={profile.contact} onChange={(e)=>setProfile((p)=>({...p,contact:e.target.value}))} /><input className="input" placeholder="위치" value={profile.address} onChange={(e)=>setProfile((p)=>({...p,address:e.target.value}))} /></div>
+        <input className="input" placeholder="업체 소개" value={profile.intro} onChange={(e)=>setProfile((p)=>({...p,intro:e.target.value}))} />
         <input className="input" placeholder="키워드" value={keyword} onChange={(e)=>setKeyword(e.target.value)} />
         <textarea className="input min-h-24" placeholder="가이드라인" value={guideline} onChange={(e)=>setGuideline(e.target.value)} />
-        <textarea className="input min-h-20" placeholder="추가 가이드" value={extraGuide} onChange={(e)=>setExtraGuide(e.target.value)} />
-        <input className="input" placeholder="화자/컨셉" value={tone} onChange={(e)=>setTone(e.target.value)} />
-        <div className="flex gap-2"><input className="input" placeholder={postType==='place'?'네이버 플레이스 URL':postType==='store'?'스마트스토어 URL':'일반 링크'} value={referenceUrl} onChange={(e)=>setReferenceUrl(e.target.value)} /><button type="button" className="btn bg-slate-800 hover:bg-slate-700" onClick={scanReference}>분석</button></div>
-        <label className="flex min-h-28 cursor-pointer items-center justify-center rounded-xl border border-dashed border-slate-600 bg-slate-950/60 text-sm" onDragOver={(e)=>e.preventDefault()} onDrop={(e)=>{e.preventDefault();setPhotos(Array.from(e.dataTransfer.files).filter(f=>f.type.startsWith('image/')));}}>드래그&드롭 또는 클릭 업로드
-          <input type="file" multiple accept="image/*" className="hidden" onChange={(e)=>setPhotos(Array.from(e.target.files||[]))} />
-        </label>
-        <div className="grid grid-cols-5 gap-2">{photos.map((p, i)=><div key={i} className="rounded-lg bg-slate-800 p-1 text-[10px]">{i+1}번 {p.name}</div>)}</div>
-        <button className="btn w-full bg-indigo-500 text-white hover:bg-indigo-400">{loading ? '생성중...' : 'AI 원고 생성'}</button>
+        <div className="text-xs text-slate-400">카테고리 참고: {profile.category || '-'}</div>
+        <input className="input" placeholder={postType==='place'?'링크(지도첨부)':postType==='store'?'링크(스마트스토어)':'링크(외부링크)'} value={referenceUrl} onChange={(e)=>setReferenceUrl(e.target.value)} />
+        <button className="btn w-full bg-indigo-500 text-white">{loading?'생성중...':'AI 원고 생성'}</button>
       </form>
-
       <section className="card space-y-3 p-4">
         <input className="input" placeholder="제목" value={title} onChange={(e)=>setTitle(e.target.value)} />
         <textarea className="input min-h-56" placeholder="본문" value={body} onChange={(e)=>setBody(e.target.value)} />
@@ -114,13 +91,6 @@ export default function HomePage() {
         <div className="rounded-xl border border-slate-700 bg-white p-4 text-slate-900"><div dangerouslySetInnerHTML={{ __html: formatted }} /></div>
       </section>
     </div>
-
-    <section className="card mt-4 space-y-3 p-4">
-      <h3 className="font-semibold">네이버 자동발행 계정 설정</h3>
-      <div className="grid gap-2 md:grid-cols-2"><input className="input" placeholder="네이버 아이디" value={naverId} onChange={(e)=>setNaverId(e.target.value)} /><input className="input" type="password" placeholder="네이버 비밀번호" value={naverPassword} onChange={(e)=>setNaverPassword(e.target.value)} /></div>
-      <button type="button" onClick={onPublish} className="btn w-full bg-emerald-500 text-white hover:bg-emerald-400">네이버 자동발행</button>
-    </section>
-
     {toast && <div className="fixed bottom-5 right-5 rounded-xl bg-slate-800 px-4 py-2 text-sm shadow-lg">{toast}</div>}
   </main>;
 }
