@@ -29,31 +29,73 @@ export default function HomePage() {
   const photoCount = photos.length;
   const formatted = useMemo(() => formatPostContent(body, { enableSubtitles: true, enableBold: true, enableHighlight: true, enableKeywordColor: true }), [body]);
 
-  function resetProfile() {
-    setProfile(emptyProfile);
+
+
+  function resetPlaceFields() {
+    setProfile((prev) => ({ ...prev, contact: '', address: '', placeLink: '', intro: '', category: '' }));
+    setKeyword('');
+    setGuideline('');
+    setExtraGuide('');
     setReferenceUrl('');
     setLink('');
-    setReferenceExtracted(null);
+    setHashtags('');
   }
 
   async function handleAutoFill() {
     const query = profile.businessName.trim();
     if (!query) return setToast('업체명을 입력해 주세요.');
-    resetProfile();
+
+    resetPlaceFields();
     setProfile((prev) => ({ ...prev, businessName: query }));
     setAutoFilling(true);
+
     try {
       const res = await fetch(`/api/naver-place?query=${encodeURIComponent(query)}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || '업체 정보를 불러오지 못했습니다.');
+
       const item = data.item;
-      setProfile({ businessName: item.title || query, contact: item.telephone || '연락처 정보 없음', address: item.address || '', placeLink: item.link || '', intro: item.description || '업체 소개 정보 없음', category: item.category || '' });
-      if (postType === 'place') { setReferenceUrl(item.link || ''); setLink(item.link || ''); }
-      setGuideline(item.category ? `카테고리 참고: ${item.category}` : '');
+      const cleanTitle = item.title || query;
+      const telephone = item.telephone || '연락처 정보 없음';
+      const address = item.roadAddress || item.address || '';
+      const linkValue = item.link || '';
+      const categoryText = item.category || '';
+
+      console.log('NAVER PLACE RESULT', {
+        title: cleanTitle,
+        telephone,
+        address: item.address || '',
+        roadAddress: item.roadAddress || '',
+        link: linkValue,
+        category: categoryText
+      });
+
+      setProfile({
+        businessName: cleanTitle,
+        contact: telephone,
+        address,
+        placeLink: linkValue,
+        intro: '',
+        category: categoryText
+      });
+
+      setReferenceUrl(linkValue);
+      setLink(linkValue);
+
+      setGuideline(`업체명: ${cleanTitle}
+카테고리: ${categoryText}
+주소: ${address}
+연락수단: ${telephone}
+플레이스 링크: ${linkValue}`);
+
+      // 업체 소개 정보는 현재 네이버 지역 검색 API에서 제공되지 않습니다. 추후 플레이스 상세 파서 연결 필요.
+
       setToast('업체 정보를 자동 입력했습니다.');
     } catch (e) {
       setToast(e instanceof Error ? e.message : '업체 정보를 불러오지 못했습니다.');
-    } finally { setAutoFilling(false); }
+    } finally {
+      setAutoFilling(false);
+    }
   }
 
   async function onGenerate(e: FormEvent) {
