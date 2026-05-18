@@ -18,13 +18,13 @@ export default function HomePage() {
   const [tone, setTone] = useState('20대 여성 발랄한 후기 말투');
   const [referenceUrl, setReferenceUrl] = useState('');
   const [referenceExtracted, setReferenceExtracted] = useState<Record<string, unknown> | null>(null);
-  const [searchList, setSearchList] = useState<Array<Record<string, string>>>([]);
-  const [photos, setPhotos] = useState<File[]>([]);
+    const [photos, setPhotos] = useState<File[]>([]);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [link, setLink] = useState('');
   const [hashtags, setHashtags] = useState('');
   const [loading, setLoading] = useState(false);
+  const [autoFilling, setAutoFilling] = useState(false);
   const [toast, setToast] = useState('');
   const [naverId, setNaverId] = useState('');
   const [naverPassword, setNaverPassword] = useState('');
@@ -32,12 +32,30 @@ export default function HomePage() {
   const photoCount = photos.length;
   const formatted = useMemo(() => formatPostContent(body, { enableSubtitles: true, enableBold: true, enableHighlight: true, enableKeywordColor: true }), [body]);
 
-  async function searchPlace(name: string) {
-    setBusinessName(name);
-    if (name.length < 2) return setSearchList([]);
-    const res = await fetch(`/api/place-search?q=${encodeURIComponent(name)}`);
-    const data = await res.json();
-    setSearchList(data.items ?? []);
+  async function handleAutoFill() {
+    if (!businessName.trim()) return setToast('업체명을 입력해 주세요.');
+    setAutoFilling(true);
+    try {
+      const res = await fetch(`/api/naver-place?query=${encodeURIComponent(businessName)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || '업체 정보를 불러오지 못했습니다.');
+      const item = data.item;
+      setBusinessName(item.title || businessName);
+      setContact(item.telephone || '');
+      setAddress(item.address || '');
+      if (postType === 'place') { setReferenceUrl(item.link || ''); setLink(item.link || ''); }
+      setCategory(item.category || '');
+      setGuideline((prev) => {
+        const cat = item.category ? `카테고리 참고: ${item.category}` : '';
+        if (!cat) return prev;
+        return prev.includes(cat) ? prev : (prev ? `${prev}\n${cat}` : cat);
+      });
+      setToast('업체 정보를 자동 입력했습니다.');
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : '업체 정보를 불러오지 못했습니다.');
+    } finally {
+      setAutoFilling(false);
+    }
   }
 
   async function scanReference() {
@@ -74,8 +92,7 @@ export default function HomePage() {
         <div className="grid grid-cols-3 gap-2">
           {(['place', 'store', 'general'] as PostType[]).map((t) => <button key={t} type="button" onClick={() => setPostType(t)} className={`btn ${postType===t?'bg-indigo-500 text-white':'bg-slate-800 text-slate-200 hover:bg-slate-700'}`}>{t==='place'?'플레이스 배포':t==='store'?'스토어 배포':'일반 배포'}</button>)}
         </div>
-        <input className="input" placeholder="업체이름" value={businessName} onChange={(e)=>searchPlace(e.target.value)} />
-        {searchList.length>0 && <div className="max-h-40 overflow-auto rounded-xl border border-slate-700">{searchList.map((s, i)=><button key={i} type="button" className="block w-full px-3 py-2 text-left hover:bg-slate-800" onClick={()=>{setBusinessName(s.name);setAddress(s.address);setContact(s.phone);setReferenceUrl(s.placeUrl);setIntro(s.intro);setCategory(s.category);setSearchList([]);}}>{s.name}</button>)}</div>}
+        <div className="flex gap-2"><input className="input" placeholder="업체이름" value={businessName} onChange={(e)=>setBusinessName(e.target.value)} /><button type="button" className="btn bg-slate-800 hover:bg-slate-700" onClick={handleAutoFill}>{autoFilling ? '불러오는 중...' : '자동 입력'}</button></div>
         <div className="grid gap-2 md:grid-cols-2"><input className="input" placeholder="연락수단" value={contact} onChange={(e)=>setContact(e.target.value)} /><input className="input" placeholder="위치" value={address} onChange={(e)=>setAddress(e.target.value)} /></div>
         <input className="input" placeholder="키워드" value={keyword} onChange={(e)=>setKeyword(e.target.value)} />
         <textarea className="input min-h-24" placeholder="가이드라인" value={guideline} onChange={(e)=>setGuideline(e.target.value)} />
@@ -92,7 +109,7 @@ export default function HomePage() {
       <section className="card space-y-3 p-4">
         <input className="input" placeholder="제목" value={title} onChange={(e)=>setTitle(e.target.value)} />
         <textarea className="input min-h-56" placeholder="본문" value={body} onChange={(e)=>setBody(e.target.value)} />
-        <input className="input" placeholder="링크(지도첨부)" value={link} onChange={(e)=>setLink(e.target.value)} />
+        <input className="input" placeholder={postType==='place' ? '링크(지도첨부)' : postType==='store' ? '링크(스마트스토어)' : '링크(외부링크)'} value={link} onChange={(e)=>setLink(e.target.value)} />
         <input className="input" placeholder="해시태그" value={hashtags} onChange={(e)=>setHashtags(e.target.value)} />
         <div className="rounded-xl border border-slate-700 bg-white p-4 text-slate-900"><div dangerouslySetInnerHTML={{ __html: formatted }} /></div>
       </section>
