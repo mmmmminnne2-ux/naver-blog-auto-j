@@ -35,7 +35,6 @@ export default function HomePage() {
     setProfile((prev) => ({ ...prev, contact: '', address: '', placeLink: '', intro: '', category: '' }));
     setKeyword('');
     setGuideline('');
-    setExtraGuide('');
     setReferenceUrl('');
     setLink('');
     setHashtags('');
@@ -58,7 +57,6 @@ export default function HomePage() {
       const cleanTitle = item.title || query;
       const telephone = item.telephone || '연락처 정보 없음';
       const address = item.roadAddress || item.address || '';
-      const linkValue = item.link || '';
       const categoryText = item.category || '';
 
       console.log('NAVER PLACE RESULT', {
@@ -66,31 +64,40 @@ export default function HomePage() {
         telephone,
         address: item.address || '',
         roadAddress: item.roadAddress || '',
-        link: linkValue,
+        link: item.link || '',
         category: categoryText
       });
+
+      const detailRes = await fetch(`/api/naver-place-detail?title=${encodeURIComponent(cleanTitle)}&address=${encodeURIComponent(address)}&link=${encodeURIComponent(item.link || '')}`);
+      const detail = await detailRes.json();
+      const placeLink = detail.placeLink || '';
+      const introText = detail.intro || '플레이스 소개 정보 없음';
 
       setProfile({
         businessName: cleanTitle,
         contact: telephone,
         address,
-        placeLink: linkValue,
-        intro: '',
+        placeLink,
+        intro: introText,
         category: categoryText
       });
 
-      setReferenceUrl(linkValue);
-      setLink(linkValue);
+      setReferenceUrl('');
+      setLink('');
+      if (placeLink) {
+        setReferenceUrl(placeLink);
+        setLink(placeLink);
+      } else {
+        setToast('네이버 플레이스 링크를 찾지 못했습니다. 직접 입력해주세요.');
+      }
 
       setGuideline(`업체명: ${cleanTitle}
 카테고리: ${categoryText}
 주소: ${address}
 연락수단: ${telephone}
-플레이스 링크: ${linkValue}`);
+플레이스 링크: ${placeLink || '-'}`);
 
-      // 업체 소개 정보는 현재 네이버 지역 검색 API에서 제공되지 않습니다. 추후 플레이스 상세 파서 연결 필요.
-
-      setToast('업체 정보를 자동 입력했습니다.');
+      if (placeLink) setToast('업체 정보를 자동 입력했습니다.');
     } catch (e) {
       setToast(e instanceof Error ? e.message : '업체 정보를 불러오지 못했습니다.');
     } finally {
